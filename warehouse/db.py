@@ -2,9 +2,11 @@ import json
 import sqlite3
 from contextlib import contextmanager
 
-DDL = """
+META_DDL = """
 CREATE TABLE IF NOT EXISTS metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL);
-INSERT OR IGNORE INTO metadata VALUES ('storage_version', '1');
+"""
+
+V1_DDL = """
 CREATE TABLE IF NOT EXISTS schema_revisions(
  id INTEGER PRIMARY KEY, name TEXT NOT NULL, body TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS schema_heads(
@@ -36,7 +38,21 @@ class Database:
         self.connection.row_factory = sqlite3.Row
         self.connection.execute('PRAGMA foreign_keys=ON')
         self.connection.execute('PRAGMA busy_timeout=3000')
-        self.connection.executescript(DDL)
+        self.connection.execute(META_DDL)
+        row = self.connection.execute(
+            "SELECT value FROM metadata WHERE key='storage_version'").fetchone()
+        if row is None:
+            self.connection.execute(
+                "INSERT INTO metadata VALUES ('storage_version','1')")
+        # An upgraded database keeps only the v2 business tables in use; the
+        # legacy tables are audit history and are never created or touched anew.
+        if row is None or row[0] != '2':
+            self.connection.executescript(V1_DDL)
+
+    def storage_version(self):
+        row = self.connection.execute(
+            "SELECT value FROM metadata WHERE key='storage_version'").fetchone()
+        return row[0] if row is not None else '1'
 
     @contextmanager
     def atomic(self):
